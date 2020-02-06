@@ -83,6 +83,7 @@ class SystemTrader(object):
         #     time.sleep(5)
 
         # for GUI
+        print (github sync test)
         app = QApplication([])
         label = QLabel('Hello World!')
         label.show()
