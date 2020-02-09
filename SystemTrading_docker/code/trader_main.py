@@ -24,65 +24,14 @@ hdlr = logging.FileHandler('system_trader.log')
 hdlr.setLevel(logging.INFO)
 logger.addHandler(hdlr)
 
+# for error Handling
+sys._excepthook = sys.excepthook
 
-class SystemTrader(object):
-    def __init__(self):
-        pass
+def exception_hook(exctype, value, traceback):
+    sys._excepthook(exctype, value, traceback)
+    sys.exit(1)
 
-    def init_trader(self):
-        self.slack = Slacker(self.opt.token)
-        self.slack_channel = self.opt.channel
-
-    def parse_options(self):
-        parser = argparse.ArgumentParser(
-            description='''\
-            Program for System Trading
-
-              Example:
-                  Execute Crawling
-                       python trader_main.py -t xoxb-240213934096-877230619267-RhhlfWgo0n0aGohid9OK8UY6 -c #general
-            ''', formatter_class=argparse.RawTextHelpFormatter)
-
-        parser.add_argument('-t', '--token',
-                            dest="token", action="store",
-                            metavar="Slack_Token",
-                            default="xoxb-240213934096-877230619267-RhhlfWgo0n0aGohid9OK8UY6",
-                            help="Slack Token ID")
-
-        parser.add_argument('-c', '--channel',
-                            dest="channel", action="store",
-                            metavar="Slack_Channel",
-                            default="#test",
-                            help="Slack Channel ID")
-        self.opt = parser.parse_args()
-
-    def slack_messages(self, messages):
-        self.slack.chat.post_message(self.slack_channel, messages)
-
-    def MsgSlack(self, post, color):
-        attachments = []
-        for post_key, post_value in post.items():
-            att_dic = {}
-            att_dic["title"] = post_key
-            att_dic["title_link"] = post_value
-            att_dic["color"] = color
-            attachments.append(att_dic)
-
-        return attachments
-
-    def main(self, current_time):
-        print("hello this is default test time is {}".format(current_time))
-
-    def run(self):
-        self.parse_options()
-        self.init_trader()
-        self.main(datetime.datetime.now())
-
-        # for GUI
-        app = QApplication([])
-        label = QLabel('Hello World!')
-        label.show()
-        app.exec_()
+sys.excepthook = exception_hook
 
 
 class KiwoomWindow(QMainWindow):
@@ -91,6 +40,7 @@ class KiwoomWindow(QMainWindow):
 
         self._init_kiwoom_transaction()
         self._init_kiwoom_window()
+        self._init_slacker()
 
     def _init_kiwoom_transaction(self):
         self.kiwoom = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
@@ -113,7 +63,7 @@ class KiwoomWindow(QMainWindow):
         # Main Window Code Input LineEdit Init
         self.stock_code_edit = QLineEdit(self)
         self.stock_code_edit.setGeometry(80, 20, 100, 30)
-        self.stock_code_edit.setText("170790")
+        self.stock_code_edit.setText("030200")
 
         # Main Window Lookup Button Init
         lookup_button = QPushButton("조회", self)
@@ -124,6 +74,25 @@ class KiwoomWindow(QMainWindow):
         self.tr_res_edit = QTextEdit(self)
         self.tr_res_edit.setGeometry(10, 60, 280, 80)
         self.tr_res_edit.setEnabled(False)
+
+    def _init_slacker(self):
+        # add Slack Bot Auth Token
+        self.slack = Slacker("xoxb-XXXX")
+        self.slack_channel = "system_trade"
+
+    def slack_messages(self, messages):
+        self.slack.chat.post_message(self.slack_channel, messages)
+
+    def MsgSlack(self, post, color):
+        attachments = []
+        for post_key, post_value in post.items():
+            att_dic = {}
+            att_dic["title"] = post_key
+            att_dic["title_link"] = post_value
+            att_dic["color"] = color
+            attachments.append(att_dic)
+
+        return attachments
 
 
     def login_evt_hdr(self, err_code):
@@ -139,9 +108,18 @@ class KiwoomWindow(QMainWindow):
                 "get", [trcode, "", rqname, 0, "종목명"]))
             volume = self.kiwoom.dynamicCall(*self.mk_str(
                 "get", [trcode, "", rqname, 0, "거래량"]))
+            current_price= self.kiwoom.dynamicCall(*self.mk_str(
+                "get", [trcode, "", rqname, 0, "시가"]))
+            high_for_the_year = self.kiwoom.dynamicCall(*self.mk_str(
+                "get", [trcode, "", rqname, 0, "연중최고"]))
+            low_for_the_year = self.kiwoom.dynamicCall(*self.mk_str(
+                "get", [trcode, "", rqname, 0, "연중최저"]))
 
-            self.tr_res_edit.append("종목명: " + name.strip())
-            self.tr_res_edit.append("거래량: " + volume.strip())
+            self.slack_messages("입력하신 종목명: {}".format(name.strip()))
+            self.slack_messages("입력하신 종목의 현재 가격: {}".format(current_price.strip()[1:]))
+            self.slack_messages("입력하신 종목의 연중 최고 가격: {}".format(high_for_the_year.strip()[1:]))
+            self.slack_messages("입력하신 종목의 연중 최저 가격: {}".format(low_for_the_year.strip()[1:]))
+            self.slack_messages("입력하신 종목의 거래량: {}".format(volume.strip()))
 
     def lookup_button_clicked_evt_hdr(self):
         print("this is lookup button clicked evt hdr")
@@ -164,9 +142,6 @@ class KiwoomWindow(QMainWindow):
         elif abb_func_name == "get":
             func_name = "CommGetData"
 
-        print("func_name is {}".format(abb_func_name))
-        print("func_args is {}".format(func_args))
-
         func_type_str = str()
         func_args_list = list()
 
@@ -187,6 +162,7 @@ class KiwoomWindow(QMainWindow):
 
         func_args_list.insert(0, func_type_str)
 
+        print("func args list is {}".format(func_args_list))
         return func_args_list
 
     def event_exception(self, error_code):
@@ -199,10 +175,9 @@ class KiwoomWindow(QMainWindow):
         elif error_code == 102:
             print("Failed Version Control")
 
-if __name__ == "__main__":
-    # system_trader = SystemTrader()
-    # system_trader.run()
 
+
+if __name__ == "__main__":
     kiwoom_app = QApplication(sys.argv)
     kiwoom_window = KiwoomWindow()
     kiwoom_window.show()
